@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FanCtl</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1 id="hdr">FanCtl</h1>
+  <div>
+    <button id="editBtn">Edit layout</button>
+    <button id="lockBtn" class="locked">Save & Lock</button>
+  </div>
+</header>
+<main>
+  <section id="main-flex">
+    <div id="canvas-wrap">
+      <img id="case-img" src="/static/case.jpg" alt="PC Case">
+      <div id="canvas"></div>
+    </div>
+    <aside id="panel">
+      <div id="info">FW - | IP - | 0s</div>
+      <div id="sliders"></div>
+      <div id="cfgBox">
+        <div class="cfgRow">
+          <label>Boost (s)</label>
+          <input id="boost" type="number" min="0" max="300">
+          <button id="boostSave">Save</button>
+        </div>
+        <div class="cfgRow">
+          <button id="rebootBtn">Reboot ESP</button>
+        </div>
+        <div class="cfgRow">
+          <select id="presetSel"></select>
+          <input id="presetName" placeholder="name">
+        </div>
+        <div class="cfgRow">
+          <button id="loadPreset">Load</button>
+          <button id="savePreset">Save</button>
+          <button id="delPreset">Delete</button>
+        </div>
+        <div class="cfgRow">
+          <button id="editLabels">Edit labels</button>
+
+        </div>
+        <!-- Дополнение к существующей странице FanCtl (только новый раздел и JS) -->
+<!-- Вставь блок <div id="rulesBox"> ... </div> в #cfgBox перед закрывающим тегом -->
+
+<div id="rulesBox">
+  <h3 style="margin:4px 0 8px">Fan Rules</h3>
+  <div id="rulesTable"></div>
+  <button id="saveRulesBtn" style="margin-top:8px">Save Rules</button>
+</div>
+
+<script>
+/* ─────────────── RULES UI ─────────────── */
+let sensors = []; // список доступных температурных сенсоров (строки)
+let rules   = []; // правила с сервера
+
+function createSelect(opts, selId, value){
+  const s = document.createElement('select');
+  s.id = selId;
+  const none = document.createElement('option'); none.value=""; none.textContent="—"; s.appendChild(none);
+  opts.forEach(t=>{const o=document.createElement('option');o.value=o.textContent=t;s.appendChild(o)});
+  s.value = value||"";
+  return s;
+}
+
+function buildRulesUI(){
+  const tbl = $("rulesTable"); tbl.innerHTML="";
+  const hdr = document.createElement('div'); hdr.className='fanRow'; hdr.innerHTML =
+    `<strong style='width:70px'>Fan</strong><strong style='flex:1'>Sensor1</strong>`+
+    `<strong style='flex:1'>Sensor2</strong><strong style='40px'>Tmin</strong>`+
+    `<strong style='40px'>Tmax</strong><strong style='40px'>Pmin</strong>`+
+    `<strong style='40px'>Pmax</strong><strong style='60px'>Mode</strong>`;
+  tbl.appendChild(hdr);
+
+  for(let i=0;i<N;i++){
+    const r = rules[i]||{sensors:[],tmin:30,tmax:70,pwm_min:0,pwm_max:255,mode:'max'};
+    const row = document.createElement('div'); row.className='fanRow';
+    row.appendChild(Object.assign(document.createElement('label'),{textContent:labels[i]||`Fan ${i}`,style:'width:70px'}));
+    row.appendChild(createSelect(sensors,`s1_${i}`,r.sensors[0]));
+    row.appendChild(createSelect(sensors,`s2_${i}`,r.sensors[1]||''));
+    row.innerHTML += `<input id='tmin_${i}' type='number' value='${r.tmin}' style='width:50px'>`+
+                     `<input id='tmax_${i}' type='number' value='${r.tmax}' style='width:50px'>`+
+                     `<input id='pmin_${i}' type='number' value='${r.pwm_min}' style='width:50px'>`+
+                     `<input id='pmax_${i}' type='number' value='${r.pwm_max}' style='width:50px'>`;
+    const modeSel=createSelect(['max','avg'],`mode_${i}`,r.mode); row.appendChild(modeSel);
+    tbl.appendChild(row);
+  }
+}
+
+async function loadRules(){
+  sensors = await fetch('/temp_sources').then(r=>r.json()).catch(()=>[]);
+  rules   = await fetch('/rules').then(r=>r.json()).catch(()=>[]);
+  buildRulesUI();
+}
+
+function collectRules(){
+  const arr=[];
+  for(let i=0;i<N;i++){
+    const s1=$("s1_"+i).value; const s2=$("s2_"+i).value;
+    arr.push({
+      sensors: [s1,s2].filter(Boolean).slice(0,2),
+      tmin: +$("tmin_"+i).value,
+      tmax: +$("tmax_"+i).value,
+      pwm_min: +$("pmin_"+i).value,
+      pwm_max: +$("pmax_"+i).value,
+      mode: $("mode_"+i).value
+    });
+  }
+  return arr;
+}
+
+$("saveRulesBtn").onclick = ()=>{
+  const newRules = collectRules();
+  fetch('/rules',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(newRules)})
+    .then(()=>alert('Rules saved'));
+};
+
+// Вызов при загрузке
+loadRules();
+</script>
+
+      </div>
+    </aside>
+  </section>
+</main>
+<script src="/static/main.js"></script>
+</body>
+</html>

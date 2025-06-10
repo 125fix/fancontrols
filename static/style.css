@@ -1,0 +1,221 @@
+:root {
+  --b: #10151b;
+  --p: #1e212a;
+  --bd: #3b4048;
+  --ac: #79b8ff;
+  --t: #f1f1f1;
+  font-family: system-ui, Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--b);
+  color: var(--t);
+  overflow: hidden;
+}
+
+header {
+  padding: 12px 16px;
+  background: var(--p);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 16px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+header button {
+  margin-left: 8px;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#main-flex {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+#canvas-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #181d22;
+}
+
+#case-img {
+  max-width: 100%;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  margin: auto;
+  z-index: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+#canvas {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+}
+
+#panel {
+  flex: 0 0 340px;
+  width: 340px;
+  background: var(--p);
+  padding: 16px;
+  overflow-y: auto;
+  min-width: 260px;
+  max-width: 420px;
+  box-shadow: -3px 0 10px #0006;
+}
+
+.fanIcon {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  cursor: pointer;
+  transform-origin: 50% 50%;
+  transition: outline 0.2s;
+  z-index: 3;
+}
+.fanIcon svg {
+  width: 100%;
+  height: 100%;
+}
+.spin {
+  animation: spin 2s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg);}
+  to   { transform: rotate(360deg);}
+}
+.hl {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+
+input[type=range] {
+  width: 100%;
+  height: 6px;
+  background: var(--bd);
+  border-radius: 3px;
+  appearance: none;
+}
+input::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ac);
+  cursor: pointer;
+}
+
+.fanRow {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.fanRow label {
+  width: 70px;
+  text-align: right;
+  font-size: 13px;
+}
+.fanRow .val {
+  width: 40px;
+  text-align: right;
+  font-size: 13px;
+}
+
+button {
+  padding: 4px 10px;
+  background: var(--ac);
+  border: 0;
+  border-radius: 4px;
+  color: var(--t);
+  cursor: pointer;
+  font-size: 13px;
+}
+button.locked {
+  opacity: .5;
+  pointer-events: none;
+}
+
+#info {
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+#cfgBox {
+  margin-top: 20px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cfgRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cfgRow input[type=number] {
+  width: 70px;
+}
+.cfgRow select {
+  flex: 1;
+}
+.cfgRow input[type=text] {
+  width: 100px;
+}
+
+@media (max-width: 768px) {
+  #main-flex {
+    flex-direction: column;
+  }
+  #canvas-wrap {
+    width: 100vw;
+    height: 45vh;
+    min-height: 240px;
+    max-height: 52vh;
+  }
+  #panel {
+    width: 100vw;
+    min-width: 0;
+    max-width: none;
+    height: 55vh;
+    box-shadow: none;
+  }
+  .fanIcon {
+    width: 36px;
+    height: 36px;
+  }
+  #case-img {
+    max-height: 45vh;
+  }
+}
