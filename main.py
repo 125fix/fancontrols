@@ -33,6 +33,7 @@ CONNECT_TO    = 2.0                     # s   connect timeout
 READ_TO       = 3.0                     # s   read timeout
 MONITOR_URL   = "http://localhost:8085/data.json"  # OHM JSON URL
 TEMP_POLL_INTERVAL = 2.0               # s
+TARGETS = ["Core Average", "GPU Core"]
 
 STATIC_DIR.mkdir(exist_ok=True)
 
@@ -111,18 +112,6 @@ async def fetch_hwmon_data():
     except Exception:
         return None
 
-def list_temp_sources(tree):
-    res = []
-    if isinstance(tree, dict):
-        if tree.get("Type") == "Temperature" and isinstance(tree.get("Text"), str):
-            res.append(tree["Text"])
-        for ch in tree.get("Children", []):
-            res.extend(list_temp_sources(ch))
-    elif isinstance(tree, list):
-        for node in tree:
-            res.extend(list_temp_sources(node))
-    return res
-
 def find_temperatures(tree, targets):
     out = {}
     if isinstance(tree, dict):
@@ -148,7 +137,7 @@ class SysInfo(BaseModel):
 state: List[FanState] = [FanState() for _ in range(FAN_COUNT)]
 info  = SysInfo()
 rules: List[Dict] = config.get("rules", [_default_rule.copy() for _ in range(FAN_COUNT)])
-temp_sources: List[str] = []
+temp_sources: List[str] = TARGETS.copy()
 
 # ────────────────────────── API models ────────────────────────
 class SetReq(BaseModel):
@@ -279,12 +268,10 @@ async def set_rules(new_rules: List[Dict]):
     save_cfg()
 
 async def auto_loop():
-    global temp_sources
     while True:
         data = await fetch_hwmon_data()
         if data:
-            temp_sources = sorted(set(list_temp_sources(data)))
-            temps = find_temperatures(data, temp_sources)
+            temps = find_temperatures(data, TARGETS)
             for i, r in enumerate(rules):
                 if not r.get("sensors"):
                     continue
