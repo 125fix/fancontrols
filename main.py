@@ -31,14 +31,26 @@ ESP_IP        = "192.168.1.41"           # при необходимости п�
 FAN_COUNT     = 8
 CONNECT_TO    = 2.0                     # s   connect timeout
 READ_TO       = 3.0                     # s   read timeout
+MONITOR_URL   = "http://localhost:8085/data.json"  # OHM JSON URL
+TEMP_POLL_INTERVAL = 2.0               # s
 
 STATIC_DIR.mkdir(exist_ok=True)
 
 # ────────────────── persistent configuration ──────────────────
+_default_rule = {
+    "sensors": [],
+    "tmin": 30,
+    "tmax": 70,
+    "pwm_min": 0,
+    "pwm_max": 255,
+    "mode": "max",
+}
+
 _default_cfg = {
     "labels": [f"Fan {i}" for i in range(FAN_COUNT)],
     "presets": {},                          # name → [8 pwm]
-    "layout": [{"x": 10+i*10, "y": 50} for i in range(FAN_COUNT)]
+    "layout": [{"x": 10+i*10, "y": 50} for i in range(FAN_COUNT)],
+    "rules": [_default_rule.copy() for _ in range(FAN_COUNT)],
 }
 try:
     config: Dict = {**_default_cfg, **json.loads(CONFIG_FILE.read_text())}
@@ -60,9 +72,12 @@ _client = httpx.AsyncClient(
     limits=httpx.Limits(max_keepalive_connections=8, max_connections=16)
 )
 
+_mon_client = httpx.AsyncClient(timeout=5.0)
+
 @app.on_event("shutdown")
 async def _close():
     await _client.aclose()
+    await _mon_client.aclose()
 
 # ───────────────── helpers к ESP32 ────────────────────────────
 async def esp_get(path: str):
@@ -87,6 +102,39 @@ async def esp_post_json(path: str, data):
     except httpx.RequestError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"ESP error: {exc!s}")
 
+# ─────────────── temperature monitor helpers ───────────────
+async def fetch_hwmon_data():
+    try:
+        r = await _mon_client.get(MONITOR_URL)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def list_temp_sources(tree):
+    res = []
+    if isinstance(tree, dict):
+        if tree.get("Type") == "Temperature" and isinstance(tree.get("Text"), str):
+            res.append(tree["Text"])
+        for ch in tree.get("Children", []):
+            res.extend(list_temp_sources(ch))
+    elif isinstance(tree, list):
+        for node in tree:
+            res.extend(list_temp_sources(node))
+    return res
+
+def find_temperatures(tree, targets):
+    out = {}
+    if isinstance(tree, dict):
+        if tree.get("Type") == "Temperature" and tree.get("Text") in targets:
+            out[tree["Text"]] = tree.get("Value")
+        for ch in tree.get("Children", []):
+            out.update(find_temperatures(ch, targets))
+    elif isinstance(tree, list):
+        for node in tree:
+            out.update(find_temperatures(node, targets))
+    return out
+
 # ─────────────── in-memory зеркало состояния ─────────────────
 class FanState(BaseModel):
     pwm: int = Field(255, ge=0, le=255)
@@ -99,6 +147,8 @@ class SysInfo(BaseModel):
 
 state: List[FanState] = [FanState() for _ in range(FAN_COUNT)]
 info  = SysInfo()
+rules: List[Dict] = config.get("rules", [_default_rule.copy() for _ in range(FAN_COUNT)])
+temp_sources: List[str] = []
 
 # ────────────────────────── API models ────────────────────────
 class SetReq(BaseModel):
@@ -201,6 +251,66 @@ async def set_layout(req: LayoutReq):
             raise HTTPException(400,"Positions must be 0-100 %")
     config["layout"] = req.layout
     save_cfg()
+
+# ─────────────────────────── rules / temps ────────────────────
+@app.get("/temp_sources")
+async def get_sources():
+    return temp_sources
+
+@app.get("/rules")
+async def get_rules():
+    return rules
+
+@app.post("/rules", status_code=204)
+async def set_rules(new_rules: List[Dict]):
+    if len(new_rules) != FAN_COUNT:
+        raise HTTPException(400, "Array of rules for each fan expected")
+    for r in new_rules:
+        if not isinstance(r.get("sensors", []), list):
+            r["sensors"] = []
+        r.setdefault("tmin", 30)
+        r.setdefault("tmax", 70)
+        r.setdefault("pwm_min", 0)
+        r.setdefault("pwm_max", 255)
+        r.setdefault("mode", "max")
+    global rules
+    rules = new_rules
+    config["rules"] = rules
+    save_cfg()
+
+async def auto_loop():
+    global temp_sources
+    while True:
+        data = await fetch_hwmon_data()
+        if data:
+            temp_sources = sorted(set(list_temp_sources(data)))
+            temps = find_temperatures(data, temp_sources)
+            for i, r in enumerate(rules):
+                if not r.get("sensors"):
+                    continue
+                vals = [temps.get(s) for s in r["sensors"] if temps.get(s) is not None]
+                if not vals:
+                    continue
+                t = max(vals) if r.get("mode") == "max" else sum(vals)/len(vals)
+                if t <= r["tmin"]:
+                    pwm = r["pwm_min"]
+                elif t >= r["tmax"]:
+                    pwm = r["pwm_max"]
+                else:
+                    k = (t - r["tmin"]) / (r["tmax"] - r["tmin"])
+                    pwm = int(r["pwm_min"] + (r["pwm_max"] - r["pwm_min"]) * k)
+                pwm = max(0, min(255, int(pwm)))
+                if pwm != state[i].pwm:
+                    state[i].pwm = pwm
+                    try:
+                        await esp_get(f"/set?fan={i}&pwm={pwm}")
+                    except Exception:
+                        pass
+        await asyncio.sleep(TEMP_POLL_INTERVAL)
+
+@app.on_event("startup")
+async def start_loop():
+    asyncio.create_task(auto_loop())
 
 # ─────────────────────────── UI  ──────────────────────────────
 HTML = r"""<!DOCTYPE html>
@@ -444,7 +554,7 @@ async function editLabels(){
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    return HTML
+    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
 # ───────────────────────── CLI ────────────────────────────────
 if __name__=="__main__":
